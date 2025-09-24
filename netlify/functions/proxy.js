@@ -4,7 +4,7 @@
 
 const ALLOWED_HOSTS = [
   // 把你要允许中转的域名放在这里（不要放泛域名，除非你知道后果）
-  'example.com',
+  '721av.com',
   'www.example.com',
   // 例如 a 网站：
   'a.example.com'
