@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Netlify 中转代理示例</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 16px; }
+    label, input, button { font-size: 14px; }
+    input[type="text"] { width: 60%; padding: 8px; margin-right: 8px; }
+    button { padding: 8px 12px; }
+    #resultFrame { width: 100%; height: 70vh; border: 1px solid #ccc; margin-top: 12px; }
+    #message { margin-top: 8px; color: #b00; }
+  </style>
+</head>
+<body>
+  <h2>通过 Netlify 代理访问目标站点（仅 GET，返回 HTML）</h2>
+  <p>输入目标完整 URL（例如：https://example.com/path），点击“访问”。仅允许白名单域名。</p>
+
+  <div>
+    <label for="target">目标 URL</label>
+    <input id="target" type="text" placeholder="https://example.com" />
+    <button id="go">访问</button>
+    <button id="openNew">在新窗口打开原始内容</button>
+  </div>
+
+  <div id="message"></div>
+
+  <!-- 我们将使用 iframe 来渲染目标 HTML，避免直接将不可信 HTML 注入到页面中 -->
+  <iframe id="resultFrame" sandbox="allow-same-origin allow-scripts"></iframe>
+
+  <script>
+    const goBtn = document.getElementById('go');
+    const openNewBtn = document.getElementById('openNew');
+    const targetInput = document.getElementById('target');
+    const resultFrame = document.getElementById('resultFrame');
+    const message = document.getElementById('message');
+
+    function showMessage(text, isError = true) {
+      message.textContent = text;
+      message.style.color = isError ? '#b00' : '#080';
+    }
+
+    goBtn.addEventListener('click', async () => {
+      message.textContent = '';
+      const raw = targetInput.value.trim();
+      if (!raw) {
+        showMessage('请先输入目标 URL');
+        return;
+      }
+      let url;
+      try {
+        url = new URL(raw);
+      } catch (e) {
+        showMessage('无效 URL');
+        return;
+      }
+
+      showMessage('正在请求……（可能需要几秒）', false);
+
+      try {
+        // 调用 Netlify Function：/.netlify/functions/proxy?target=...
+        const apiUrl = '/.netlify/functions/proxy?target=' + encodeURIComponent(url.href);
+        const resp = await fetch(apiUrl);
+        if (!resp.ok) {
+          const txt = await resp.text();
+          showMessage('代理请求失败：' + resp.status + ' ' + txt);
+          return;
+        }
+
+        // 期望返回 text/html
+        const contentType = resp.headers.get('content-type') || '';
+        const html = await resp.text();
+
+        // 为安全起见，我们通过 iframe 来渲染返回的 HTML，避免直接 innerHTML 注入到父页面。
+        // 我们创建一个 blob URL 并 set src 为 blob，这样 iframe 是隔离的。
+        const blob = new Blob([html], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // 释放上一个 blob URL（如果有）
+        const prev = resultFrame.getAttribute('data-blob-url');
+        if (prev) {
+          URL.revokeObjectURL(prev);
+        }
+        resultFrame.setAttribute('data-blob-url', blobUrl);
+        resultFrame.src = blobUrl;
+
+        showMessage('请求成功，已在下方渲染（iframe）', false);
+
+      } catch (err) {
+        console.error(err);
+        showMessage('请求异常：' + err.message);
+      }
+    });
+
+    openNewBtn.addEventListener('click', () => {
+      const raw = targetInput.value.trim();
+      if (!raw) { showMessage('请先输入目标 URL'); return; }
+      window.open('/.netlify/functions/proxy?target=' + encodeURIComponent(raw), '_blank');
+    });
+
+    // 允许回车触发
+    targetInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') goBtn.click();
+    });
+  </script>
+</body>
+</html>
